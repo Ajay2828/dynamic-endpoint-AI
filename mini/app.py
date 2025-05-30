@@ -44,8 +44,8 @@ registry_lock = threading.Lock()
 def generate_ai_insights(query: str, data: list, analysis_type: str = "standard"):
     """Generate analysis using Vertex AI with Llama 3.1"""
     # chat_model = ChatModel.from_pretrained("gemini-pro")
-    # chat_model = ChatModel.from_pretrained("llama-3-1")
-    chat_model = ChatModel.from_pretrained("chat-bison@001")
+    chat_model = ChatModel.from_pretrained("llama-3-1")
+    # chat_model = ChatModel.from_pretrained("chat-bison@001")
     
     prompts = {
         "standard": f"""
