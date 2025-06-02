@@ -10,11 +10,11 @@ load_dotenv()
 # DB_USER = os.getenv('DB_USER', 'shreemaruti_readonly')
 # DB_PASS = os.getenv('DB_PASS', 'G7c!bX9@q12')
 
-DB_HOST = os.getenv('DB_HOST', 'localhost')
+DB_HOST = os.getenv('DB_HOST', '34.58.9.128')
 DB_PORT = os.getenv('DB_PORT', '5432')
 DB_NAME = os.getenv('DB_NAME', 'postgres')
-DB_USER = os.getenv('DB_USER', 'postgres')
-DB_PASS = os.getenv('DB_PASS', 'postgres')
+DB_USER = os.getenv('DB_USER', 'prod-shreemaruthi-private-db-user-sql')
+DB_PASS = os.getenv('DB_PASS', 'CV-09r63p3n5H-KH')
 
 DB_CONFIG = {
     'dbname': DB_NAME,

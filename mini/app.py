@@ -35,9 +35,15 @@ endpoint_registry = {}
 registry_lock = threading.Lock()
 
 def get_access_token_from_service_account(service_account_file, scopes):
-    credentials = service_account.Credentials.from_service_account_file(service_account_file, scopes=scopes)
-    token = credentials.token
-    return token
+    credentials = service_account.Credentials.from_service_account_file(
+        service_account_file, scopes=scopes
+    )
+        
+    from google.auth.transport.requests import Request
+    request = Request()
+    credentials.refresh(request)
+    
+    return credentials.token
 
 
 
@@ -45,10 +51,10 @@ def get_access_token_from_service_account(service_account_file, scopes):
 def generate_ai_insights(query: str, data: list, analysis_type: str = "standard"):
     """Generate analysis using Llama API"""
     try:
+        
         # Get access token
         scopes = ["https://www.googleapis.com/auth/cloud-platform"]
         access_token = get_access_token_from_service_account(os.getenv('GOOGLE_APPLICATION_CREDENTIALS'), scopes)
-        print(f"Access Token: {access_token}")  # Debugging line
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"
@@ -100,21 +106,32 @@ def generate_ai_insights(query: str, data: list, analysis_type: str = "standard"
         }
 
         prompt = prompts.get(analysis_type, prompts["standard"])
-        data = {
+        
+        # Fixed payload structure - removed stream and fixed variable name
+        payload = {
             "model": "meta/llama-3.1-405b-instruct-maas",
-            "stream": True,
-            "messages": [{"role": "user", "content": prompt}]
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 2048,
+            "temperature": 0.3
         }
-        # payload = {
-        #     "prompt": prompts.get(analysis_type, prompts["standard"]),
-        #     "max_tokens": 1024,
-        #     "temperature": 0.3
-        # }
 
-        response = requests.post(api_url, headers=headers, json=data)
+        
+        response = requests.post(api_url, headers=headers, json=payload)
+        
+    
         response.raise_for_status()
         
-        return response.json().get("choices", [{}])[0].get("text", "No response from AI model")
+        # Parse the OpenAI-compatible response format
+        result = response.json()
+        if "choices" in result and len(result["choices"]) > 0:
+            # Try different possible response fields
+            choice = result["choices"][0]
+            content = (choice.get("message", {}).get("content") or 
+                      choice.get("text") or 
+                      "No response from AI model")
+            return content
+        else:
+            return f"Unexpected response format: {result}"
         
     except requests.exceptions.RequestException as e:
         return f"Request to Llama API failed: {str(e)}"
