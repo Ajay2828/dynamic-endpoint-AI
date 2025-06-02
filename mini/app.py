@@ -1,3 +1,8 @@
+ENDPOINT = "us-central1-aiplatform.googleapis.com"
+REGION = "us-central1"
+PROJECT_ID = "saturam"
+api_url = f"https://{ENDPOINT}/v1/projects/{PROJECT_ID}/locations/{REGION}/endpoints/openapi/chat/completions"
+
 from flask import Flask
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -10,13 +15,12 @@ from psycopg2 import sql
 import services.utils as utils
 from auth.middleware import api_key_required
 import traceback
+import requests
+import json
 
 # === New Imports for AI + Thread Safety ===
 import os
 import threading
-from vertexai.preview.language_models import ChatModel, InputOutputTextPair
-from google.api_core import exceptions as google_exceptions
-import vertexai
 from google.oauth2 import service_account
 from dotenv import load_dotenv
 
@@ -26,97 +30,96 @@ load_dotenv()
 # Initialize extensions
 limiter = Limiter(key_func=get_remote_address)
 
-# === AI Model Config ===
-vertexai.init(
-    project=os.getenv('GCP_PROJECT_ID'),
-    location=os.getenv('GCP_REGION'),
-    credentials=service_account.Credentials.from_service_account_file(
-        os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
-    )
-)
-
-
 # === Thread-safe in-memory registry ===
 endpoint_registry = {}
 registry_lock = threading.Lock()
 
+def get_access_token_from_service_account(service_account_file, scopes):
+    credentials = service_account.Credentials.from_service_account_file(service_account_file, scopes=scopes)
+    token = credentials.token
+    return token
+
+
+
 # === AI Analysis Function ===
 def generate_ai_insights(query: str, data: list, analysis_type: str = "standard"):
-    """Generate analysis using Vertex AI with Llama 3.1"""
-    # chat_model = ChatModel.from_pretrained("gemini-pro")
-    chat_model = ChatModel.from_pretrained("llama-3-1")
-    # chat_model = ChatModel.from_pretrained("chat-bison@001")
-    
-    prompts = {
-        "standard": f"""
-        [INST] <<SYS>>
-        You are a data analysis assistant. Analyze this database query and results:
-        <</SYS>>
-        
-        Query: {query}
-        Data Sample: {data[:3]} (showing first 3 of {len(data)} records)
-        
-        Provide:
-        1. Key statistical insights
-        2. Notable patterns/trends
-        3. Data quality observations
-        4. 3 actionable recommendations [/INST]
-        """,
-        "technical": f"""
-        [INST] <<SYS>>
-        You are a database optimization expert. Analyze this SQL query execution:
-        <</SYS>>
-        
-        Query: {query}
-        Returned {len(data)} records
-        
-        Provide:
-        1. Query optimization suggestions
-        2. Index recommendations
-        3. Schema improvement ideas
-        4. Potential performance bottlenecks [/INST]
-        """,
-        "business": f"""
-        [INST] <<SYS>>
-        You are a business intelligence analyst. Analyze these records:
-        <</SYS>>
-        
-        Query: {query}
-        Data Sample: {data[:5]}
-        
-        Provide:
-        1. Key business insights
-        2. Revenue/profit opportunities
-        3. Risk factors
-        4. Strategic recommendations [/INST]
-        """
-    }
-    
+    """Generate analysis using Llama API"""
     try:
-        chat = chat_model.start_chat(
-            context="You are an expert data analyst providing concise, accurate insights",
-            examples=[
-                InputOutputTextPair(
-                    input_text="What trends do you see in this sales data?",
-                    output_text="1. Sales peak on weekends\n2. Product A outperforms others by 30%\n3. Recommend increasing weekend staffing"
-                )
-            ]
-        )
+        # Get access token
+        scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+        access_token = get_access_token_from_service_account(os.getenv('GOOGLE_APPLICATION_CREDENTIALS'), scopes)
+        print(f"Access Token: {access_token}")  # Debugging line
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        prompts = {
+            "standard": f"""
+            [INST] <<SYS>>
+            You are a data analysis assistant. Analyze this database query and results:
+            <</SYS>>
+            
+            Query: {query}
+            Data Sample: {data[:3]} (showing first 3 of {len(data)} records)
+            
+            Provide:
+            1. Key statistical insights
+            2. Notable patterns/trends
+            3. Data quality observations
+            4. 3 actionable recommendations [/INST]
+            """,
+            "technical": f"""
+            [INST] <<SYS>>
+            You are a database optimization expert. Analyze this SQL query execution:
+            <</SYS>>
+            
+            Query: {query}
+            Returned {len(data)} records
+            
+            Provide:
+            1. Query optimization suggestions
+            2. Index recommendations
+            3. Schema improvement ideas
+            4. Potential performance bottlenecks [/INST]
+            """,
+            "business": f"""
+            [INST] <<SYS>>
+            You are a business intelligence analyst. Analyze these records:
+            <</SYS>>
+            
+            Query: {query}
+            Data Sample: {data[:5]}
+            
+            Provide:
+            1. Key business insights
+            2. Revenue/profit opportunities
+            3. Risk factors
+            4. Strategic recommendations [/INST]
+            """
+        }
+
+        prompt = prompts.get(analysis_type, prompts["standard"])
+        data = {
+            "model": "meta/llama-3.1-405b-instruct-maas",
+            "stream": True,
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        # payload = {
+        #     "prompt": prompts.get(analysis_type, prompts["standard"]),
+        #     "max_tokens": 1024,
+        #     "temperature": 0.3
+        # }
+
+        response = requests.post(api_url, headers=headers, json=data)
+        response.raise_for_status()
         
-        response = chat.send_message(
-            prompts.get(analysis_type, prompts["standard"]),
-            temperature=0.3,
-            max_output_tokens=1024
-        )
-        return response.text
-    except google_exceptions.InvalidArgument as e:
-        return f"Invalid request to Vertex AI: {str(e)}"
-    except google_exceptions.PermissionDenied as e:
-        return f"Authentication failed: {str(e)}"
-    except google_exceptions.ResourceExhausted as e:
-        return f"Quota exceeded: {str(e)}"
+        return response.json().get("choices", [{}])[0].get("text", "No response from AI model")
+        
+    except requests.exceptions.RequestException as e:
+        return f"Request to Llama API failed: {str(e)}"
     except Exception as e:
-        return f"Vertex AI analysis failed: {str(e)}"
+        return f"AI analysis failed: {str(e)}"
 
 
 # === App Factory ===
@@ -135,9 +138,9 @@ def create_app():
     # === Preload cache ===
     utils.preload_registered_endpoints()
 
-    app.config['VERTEX_AI_CONFIG'] = {
-        'model_name': 'llama-3-1',
-        'max_tokens': 512,
+    app.config['LLAMA_API_CONFIG'] = {
+        'endpoint': api_url,
+        'max_tokens': 1024,
         'temperature': 0.3
     }
 
