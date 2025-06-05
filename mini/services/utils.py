@@ -3,7 +3,6 @@ from psycopg2 import sql
 from typing import Dict, List
 from datetime import datetime,timedelta,timezone
 from config import DB_CONFIG
-from app import registry_lock, endpoint_registry
 
 
 def get_current_datetime():
@@ -17,22 +16,7 @@ def get_current_datetime():
     ist_now = local_now.astimezone(ist_timezone)
     return ist_now.strftime('%Y-%m-%d %H:%M:%S')
 
-def preload_registered_endpoints():
-    try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        cursor = conn.cursor()
-        cursor.execute("SELECT endpoint_name, query, endpoint_path FROM de_dynamic_api.endpoint_registry")  # Change table name if needed
-        rows = cursor.fetchall()
-        with registry_lock:
-            for name, query, path in rows:
-                endpoint_registry[name] = {
-                    "query": query,
-                    "path": path
-                }
-        cursor.close()
-        conn.close()
-    except Exception as e:
-        print("Failed to preload endpoints from DB:", str(e))
+
 
 
 def get_table_schema(schema_name: str, table_name: str) -> Dict[str, str]:
@@ -77,6 +61,11 @@ def make_dynamic_query(schema_name: str, table_name: str, select_columns: List[s
 
     # Return the final query as a string (with %s placeholders)
     return query.as_string(psycopg2.connect(**DB_CONFIG))
+
+def generate_endpoint_name_1(table_name: str) -> str:
+    """Generate unique endpoint name"""
+    return hashlib.md5(table_name.encode()).hexdigest()[:8]
+
 
 def generate_endpoint_name(table_name: str, select_columns: List[str], filter_columns: List[str]) -> str:
     select_part = "_".join(select_columns)

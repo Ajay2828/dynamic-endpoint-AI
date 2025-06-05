@@ -30,3 +30,8 @@ class Config:
     
     # Rate Limiting
     RATE_LIMIT = os.getenv('RATE_LIMIT', '5/minute')
+    RATE_LIMITS = {
+        'dynamic': '60/minute',
+        'analysis': '30/minute',
+        'create': '5/minute'
+    }
